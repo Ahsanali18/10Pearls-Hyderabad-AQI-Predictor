@@ -1,0 +1,27 @@
+# CORE DATA LIBRARIES
+pandas==2.2.2
+numpy==1.26.4
+
+# DATA VISUALIZATION
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# API REQUESTS
+requests==2.31.0
+
+# MACHINE LEARNING
+scikit-learn==1.5.1
+xgboost==2.1.1
+shap==0.45.1
+
+# MODEL EXPLAINABILITY
+shap==0.45.1
+
+# DATABASE
+pymongo==4.8.0
+
+# ENVIRONMENT VARIABLES
+python-dotenv==1.0.1
+
+# DASHBOARD
+streamlit==1.37.1
