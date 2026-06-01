@@ -1,0 +1,39 @@
+name: Daily Model Training
+
+on:
+  schedule:
+    - cron: '0 20 * * *'   # 1:00 AM PKT (UTC+5) = 20:00 UTC
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10.11'       
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Refresh data before training   
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          MONGO_DB_NAME: ${{ secrets.MONGO_DB_NAME }}
+          MONGO_COLLECTION: ${{ secrets.MONGO_COLLECTION }}
+          MONGO_MODELS_COLLECTION: ${{ secrets.MONGO_MODELS_COLLECTION }}
+        run: python -m src.pipelines.live_pipeline   
+
+      - name: Train model
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          MONGO_DB_NAME: ${{ secrets.MONGO_DB_NAME }}
+          MONGO_COLLECTION: ${{ secrets.MONGO_COLLECTION }}
+          MONGO_MODELS_COLLECTION: ${{ secrets.MONGO_MODELS_COLLECTION }}
+        run: python -m src.pipelines.training_pipeline  
+        
