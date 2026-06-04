@@ -1,7 +1,5 @@
 """
-src/pipelines/live_pipeline.py
-================================
-Hyderabad AQI — Live Inference Pipeline
+Hyderabad AQI — Live Inference Pipeline Module:
 Runs every hour via GitHub Actions.
 
 WHAT IT DOES:
@@ -11,7 +9,7 @@ WHAT IT DOES:
     4. Computes all 55 features using compute_live_features()
     5. Upserts current hour row to MongoDB features collection
     6. Loads best models from MongoDB GridFS
-    7. Predicts Day1 (aqi_24h), Day2 (aqi_48h), Day3 (aqi_72h)
+    7. Predicts Day1 (aqi_24h), Day2 (aqi_48h), Day3 (aqi_72h) AQI's.
     8. Stores predictions in MongoDB predictions collection
 
 KEY DESIGN NOTES:
@@ -19,16 +17,6 @@ KEY DESIGN NOTES:
     - aqi_48h = mean AQI over t+25..t+48 (Day 2)
     - aqi_72h = mean AQI over t+49..t+72 (Day 3)
     - Day 2/3 quality depends heavily on aqi_lag_36h, aqi_lag_48h,
-      aqi_lag_72h — these need 72 rows of clean MongoDB history.
-      Pipeline warns clearly when history is insufficient.
-
-NO DUPLICATES:
-    Upsert uses timestamp as unique key.
-    Running twice at the same hour updates, never inserts a duplicate.
-
-SCHEDULE (GitHub Actions):
-    Live pipeline     : every hour   ('0 * * * *')
-    Training pipeline : once daily   ('0 2 * * *')
 """
 
 import sys
@@ -46,11 +34,7 @@ from config.settings import (
     MONGO_COLLECTION,
 )
 from src.data_fetching.fetch_data import COLUMN_MAPPING
-from src.features.feature_engineering import (
-    compute_live_features,
-    FEATURE_COLUMNS,
-    TARGET_COLUMNS,
-)
+from src.features.feature_engineering import compute_live_features, TARGET_COLUMNS
 from src.database.database_connection import get_db_client, nan_to_none
 from src.database.model_registry import load_model
 
@@ -278,14 +262,6 @@ def fetch_forecast_df():
 def fetch_history(col):
     """
     Reads last 72 rows from MongoDB features collection (oldest → newest).
-
-    WHY 72 ROWS MATTER FOR YOUR MODEL:
-        Your lag features go back to aqi_lag_72h.
-        aqi_lag_36h is your Day 2 bridge anchor — if row 36 is missing,
-        the bridge collapses to 0 (after NaN fill) and Day 2 R² drops.
-        aqi_lag_48h is your Day 3 anchor — same problem.
-        72 clean rows = all lag features populated = best predictions.
-
     Returns:
         DataFrame sorted oldest → newest with columns: aqi, pressure, timestamp
     """
@@ -327,9 +303,9 @@ def build_feature_row(current_row, history_df, forecast_df):
     since compute_live_features() doesn't return it — needed for MongoDB upsert.
 
     Logs key features so you can verify correctness at a glance:
-        - Lag features → tells you if history is feeding through correctly
-        - Future features → tells you if forecast API is feeding through
-        - Bridge features → tells you if Day 2/3 inputs are populated
+        - Lag features → tells if history is feeding through correctly
+        - Future features → tells if forecast API is feeding through
+        - Bridge features → tells if Day 2/3 inputs are populated
     """
     print("\n[4/6] Computing features ...")
 
@@ -406,10 +382,9 @@ def upsert_feature_row(col, feature_dict):
 def _model_exists(db, target):
     """
     Check if a trained model exists in MongoDB for the given target.
-    Defined here since model_registry.py doesn't have this function.
     """
     models_col = db["models"]    # MONGO_MODELS_COLLECTION
-    return models_col.find_one({"target": target}) is not None
+    return models_col.find_one({"storage_key": target}) is not None
 
 
 def predict_and_store(feature_dict, db):
@@ -419,7 +394,6 @@ def predict_and_store(feature_dict, db):
     KEY NOTES:
         - Tree models (XGBoost, RandomForest) take raw numpy array
         - LinearRegression takes StandardScaler-transformed array
-        - We check model_name from the saved bundle, NOT hardcoded
 
     Stores one prediction document per timestamp in predictions collection:
         timestamp, made_at, aqi_now, aqi_24h, aqi_48h, aqi_72h

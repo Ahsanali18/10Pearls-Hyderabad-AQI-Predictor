@@ -258,40 +258,67 @@ def print_summary(results):
         print()
 
 
-# SAVE BEST MODEL PER TARGET
+# Save Models
 def save_best_models(results, trained, scaler, db):
     """
-    Pick the model with lowest test RMSE per target.
-    Save a bundle {model, scaler, feature_columns, metadata} to MongoDB GridFS.
+    Save ALL trained models to MongoDB for comparison display,
+    and save the best model per target under its plain key
+    so live_pipeline.py can load it without any changes.
+
+    MongoDB after this runs:
+        storage_key="aqi_24h_LinearRegression"  is_best=False
+        storage_key="aqi_24h_RandomForest"      is_best=False
+        storage_key="aqi_24h_XGBoost"           is_best=True
+        storage_key="aqi_24h"                   is_best=True  ← used by live_pipeline
+        storage_key="aqi_48h_LinearRegression"  is_best=False
+        ... (9 comparison docs + 3 shortcut docs = 12 total)
     """
     print("\n" + "=" * 60)
-    print("STEP 4 — SAVING BEST MODELS TO MONGODB")
+    print("STEP 4 — SAVING ALL MODELS TO MONGODB")
     print("=" * 60)
 
     for target in TARGET_COLUMNS:
-        best_name    = min(results[target], key=lambda m: results[target][m]["rmse"])
-        best_model   = trained[target][best_name]
-        best_metrics = results[target][best_name]
 
-        print(f"\n  Target : {target}")
-        print(f"  Winner : {best_name}")
-        print(f"  Metrics: RMSE={best_metrics['rmse']:.2f}  "
-              f"MAE={best_metrics['mae']:.2f}  "
-              f"R²={best_metrics['r2']:.3f}")
+        # Pick winner for this target
+        best_name = min(
+            results[target],
+            key=lambda m: results[target][m]["rmse"]
+        )
 
-        bundle = {
-            "model":           best_model,
-            "scaler":          scaler,
-            "model_name":      best_name,
-            "target":          target,
-            "feature_columns": FEATURE_COLUMNS,
-        }
+        print(f"\n  Target : {target}  |  Best : {best_name}")
+        print(f"  {'Model':<22} {'RMSE':>7} {'MAE':>7} {'R²':>7}  Saved as")
+        print(f"  {'-'*65}")
 
-        save_model(db, target, bundle, best_metrics, best_name)
-        print(f"  Saved  → MongoDB model registry")
+        for model_name, model in trained[target].items():
+            metrics  = results[target][model_name]
+            is_best  = (model_name == best_name)
+            key      = f"{target}_{model_name}"   # e.g. "aqi_24h_XGBoost"
+            star     = " ★" if is_best else "  "
 
-    print("\n  All 3 best models saved successfully.")
+            bundle = {
+                "model":           model,
+                "scaler":          scaler,
+                "model_name":      model_name,
+                "target":          target,
+                "feature_columns": FEATURE_COLUMNS,
+                "is_best":         is_best,
+            }
 
+            # Save under composite key — for comparison table in dashboard
+            save_model(db, key, bundle, metrics, model_name, is_best=is_best)
+
+            print(f"  {model_name:<22}{star} "
+                  f"{metrics['rmse']:>7.2f} "
+                  f"{metrics['mae']:>7.2f} "
+                  f"{metrics['r2']:>7.3f}  → {key}")
+
+            # Save winner AGAIN under plain target key
+            # This is what live_pipeline.py calls: load_model(db, "aqi_24h")
+            if is_best:
+                save_model(db, target, bundle, metrics, model_name, is_best=True)
+                print(f"  {'':22}   {'':>7} {'':>7} {'':>7}  → {target}.")
+
+    print("\n  All models saved to model registry, Successfully!")
 
 # MAIN
 def run_training():
