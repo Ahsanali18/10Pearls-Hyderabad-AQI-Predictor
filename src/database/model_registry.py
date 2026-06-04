@@ -27,7 +27,7 @@ from config.settings import MONGO_MODELS_COLLECTION
 # SAVE
 # ─────────────────────────────────────────────────────────
 
-def save_model(db, storage_key, bundle, metrics, model_name, is_best=False):
+def save_model(db, bundle, metrics, model_name, is_best=False):
     """
     Save one model bundle to GridFS and upsert its metadata document.
 
@@ -46,9 +46,10 @@ def save_model(db, storage_key, bundle, metrics, model_name, is_best=False):
     fs         = gridfs.GridFS(db)
     models_col = db[MONGO_MODELS_COLLECTION]
     saved_at   = datetime.now(timezone.utc)
+    target     = bundle["target"]
 
-    # ── Delete old GridFS file for this storage_key ──────────
-    old = models_col.find_one({"storage_key": storage_key})
+    # Delete old GridFS file for this target+model if exists
+    old = models_col.find_one({"target": target, "model_name": model_name})
     if old and "gridfs_id" in old:
         try:
             fs.delete(old["gridfs_id"])
@@ -56,15 +57,14 @@ def save_model(db, storage_key, bundle, metrics, model_name, is_best=False):
             pass
 
     # ── Save new bundle to GridFS ─────────────────────────────
-    filename  = f"{storage_key}_{saved_at.strftime('%Y%m%d_%H%M%S')}.pkl"
+    filename  = f"{target}_{model_name}_{saved_at.strftime('%Y%m%d_%H%M%S')}.pkl"
     gridfs_id = fs.put(pickle.dumps(bundle), filename=filename)
 
     # ── Upsert metadata document ──────────────────────────────
     models_col.update_one(
-        {"storage_key": storage_key},          # unique per target+model combo
+        {"target": target, "model_name": model_name},
         {"$set": {
-            "storage_key": storage_key,        # e.g. "aqi_24h_XGBoost"
-            "target":      bundle["target"],   # e.g. "aqi_24h"
+            "target":      target,             # e.g. "aqi_24h"
             "model_name":  model_name,         # e.g. "XGBoost"
             "is_best":     is_best,
             "gridfs_id":   gridfs_id,
@@ -77,7 +77,7 @@ def save_model(db, storage_key, bundle, metrics, model_name, is_best=False):
     )
 
     star = " ★ BEST" if is_best else ""
-    print(f"        Saved [{storage_key}]{star}  →  GridFS: {filename}")
+    print(f"        Saved [{target}_{model_name}]{star}  →  GridFS: {filename}")
 
 
 # ─────────────────────────────────────────────────────────
@@ -102,8 +102,7 @@ def load_model(db, target):
     fs         = gridfs.GridFS(db)
     models_col = db[MONGO_MODELS_COLLECTION]
 
-    # Look up by plain target key (e.g. "aqi_24h")
-    meta = models_col.find_one({"storage_key": target})
+    meta = models_col.find_one({"target": target, "is_best": True})
    
     if not meta:
         raise ValueError(

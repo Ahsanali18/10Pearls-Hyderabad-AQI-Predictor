@@ -30,6 +30,8 @@ Saves:
 import copy
 import numpy as np
 import pandas as pd
+import gridfs
+    
 
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
@@ -37,10 +39,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from xgboost import XGBRegressor
 
-from config.settings import MONGO_COLLECTION
+from config.settings import MONGO_COLLECTION, MONGO_MODELS_COLLECTION
 from src.features.feature_engineering import FEATURE_COLUMNS, TARGET_COLUMNS
 from src.database.database_connection import get_db_client
 from src.database.model_registry import save_model
+
 
 RANDOM_SEED = 42
 TRAIN_RATIO = 0.80
@@ -261,21 +264,18 @@ def print_summary(results):
 # Save Models
 def save_best_models(results, trained, scaler, db):
     """
-    Save ALL trained models to MongoDB for comparison display,
-    and save the best model per target under its plain key
-    so live_pipeline.py can load it without any changes.
-
-    MongoDB after this runs:
-        storage_key="aqi_24h_LinearRegression"  is_best=False
-        storage_key="aqi_24h_RandomForest"      is_best=False
-        storage_key="aqi_24h_XGBoost"           is_best=True
-        storage_key="aqi_24h"                   is_best=True  ← used by live_pipeline
-        storage_key="aqi_48h_LinearRegression"  is_best=False
-        ... (9 comparison docs + 3 shortcut docs = 12 total)
+    Save ALL 9 trained models to MongoDB for comparison display.
+    Marks the winner per target with is_best=True.
     """
+
     print("\n" + "=" * 60)
     print("STEP 4 — SAVING ALL MODELS TO MONGODB")
     print("=" * 60)
+    
+    # Wipe old documents
+    models_col = db[MONGO_MODELS_COLLECTION]
+    deleted    = models_col.delete_many({})
+    print(f"\n  Cleared {deleted.deleted_count} old model documents")
 
     for target in TARGET_COLUMNS:
 
@@ -292,9 +292,7 @@ def save_best_models(results, trained, scaler, db):
         for model_name, model in trained[target].items():
             metrics  = results[target][model_name]
             is_best  = (model_name == best_name)
-            key      = f"{target}_{model_name}"   # e.g. "aqi_24h_XGBoost"
-            star     = " ★" if is_best else "  "
-
+            
             bundle = {
                 "model":           model,
                 "scaler":          scaler,
@@ -304,19 +302,14 @@ def save_best_models(results, trained, scaler, db):
                 "is_best":         is_best,
             }
 
-            # Save under composite key — for comparison table in dashboard
-            save_model(db, key, bundle, metrics, model_name, is_best=is_best)
-
+            # Save models uses target+model_name
+            save_model(db, bundle, metrics, model_name, is_best=is_best)
+            
+            star = " ★" if is_best else "  "
             print(f"  {model_name:<22}{star} "
                   f"{metrics['rmse']:>7.2f} "
                   f"{metrics['mae']:>7.2f} "
-                  f"{metrics['r2']:>7.3f}  → {key}")
-
-            # Save winner AGAIN under plain target key
-            # This is what live_pipeline.py calls: load_model(db, "aqi_24h")
-            if is_best:
-                save_model(db, target, bundle, metrics, model_name, is_best=True)
-                print(f"  {'':22}   {'':>7} {'':>7} {'':>7}  → {target}.")
+                  f"{metrics['r2']:>7.3f}")
 
     print("\n  All models saved to model registry, Successfully!")
 

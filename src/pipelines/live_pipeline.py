@@ -32,6 +32,7 @@ from config.settings import (
     LONGITUDE,
     TIMEZONE,
     MONGO_COLLECTION,
+    MONGO_MODELS_COLLECTION
 )
 from src.data_fetching.fetch_data import COLUMN_MAPPING
 from src.features.feature_engineering import compute_live_features, TARGET_COLUMNS
@@ -383,8 +384,8 @@ def _model_exists(db, target):
     """
     Check if a trained model exists in MongoDB for the given target.
     """
-    models_col = db["models"]    # MONGO_MODELS_COLLECTION
-    return models_col.find_one({"storage_key": target}) is not None
+    models_col = db[MONGO_MODELS_COLLECTION]
+    return models_col.find_one({"target":  target, "is_best": True}) is not None
 
 
 def predict_and_store(feature_dict, db):
