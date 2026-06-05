@@ -35,11 +35,16 @@ from config.settings import (
     MONGO_MODELS_COLLECTION
 )
 from src.data_fetching.fetch_data import COLUMN_MAPPING
-from src.features.feature_engineering import compute_live_features, TARGET_COLUMNS
+from src.features.feature_engineering import compute_live_features, TARGET_COLUMNS, get_features
 from src.database.database_connection import get_db_client, nan_to_none
 from src.database.model_registry import load_model
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=5, max=30), reraise=True)
+def _safe_get(url, params):
+    r = requests.get(url, params=params, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
 WEATHER_FORECAST_URL     = "https://api.open-meteo.com/v1/forecast"
 AIR_QUALITY_FORECAST_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
@@ -111,11 +116,7 @@ def fetch_current_hour():
     }
 
     try:
-        weather_resp = requests.get(
-            WEATHER_FORECAST_URL, params=weather_params, timeout=30
-        )
-        weather_resp.raise_for_status()
-        weather_data = weather_resp.json()
+        weather_data = _safe_get(WEATHER_FORECAST_URL, weather_params)
     except Exception as e:
         print(f"[ERROR] Weather fetch failed: {e}")
         sys.exit(1)
@@ -139,11 +140,7 @@ def fetch_current_hour():
     }
 
     try:
-        aq_resp = requests.get(
-            AIR_QUALITY_FORECAST_URL, params=aq_params, timeout=30
-        )
-        aq_resp.raise_for_status()
-        aq_data = aq_resp.json()
+        aq_data = _safe_get(AIR_QUALITY_FORECAST_URL, aq_params)
     except Exception as e:
         print(f"[ERROR] Air quality fetch failed: {e}")
         sys.exit(1)
@@ -208,11 +205,7 @@ def fetch_forecast_df():
     }
 
     try:
-        weather_resp = requests.get(
-            WEATHER_FORECAST_URL, params=weather_params, timeout=30
-        )
-        weather_resp.raise_for_status()
-        weather_data = weather_resp.json()
+        weather_data = _safe_get(WEATHER_FORECAST_URL, weather_params)
     except Exception as e:
         print(f"        [WARN] Forecast weather fetch failed: {e}")
         print(f"        Future weather features will be NaN — Day 2/3 predictions may degrade.")
@@ -228,13 +221,9 @@ def fetch_forecast_df():
     }
 
     try:
-        aq_resp = requests.get(
-            AIR_QUALITY_FORECAST_URL, params=aq_params, timeout=30
-        )
-        aq_resp.raise_for_status()
-        aq_data = aq_resp.json()
+        aq_data = _safe_get(AIR_QUALITY_FORECAST_URL, aq_params)
     except Exception as e:
-        print(f"        [WARN] Forecast AQ fetch failed: {e}")
+        print(f"        [WARN] Forecast Air Quality fetch failed: {e}")
         return None
 
     # Build forecast DataFrame 
@@ -399,6 +388,14 @@ def predict_and_store(feature_dict, db):
     Stores one prediction document per timestamp in predictions collection:
         timestamp, made_at, aqi_now, aqi_24h, aqi_48h, aqi_72h
     """
+    HORIZON_MAP = {
+        "aqi_24h": "24h",
+        "aqi_48h": "48h",
+        "aqi_72h": "72h",
+        }
+
+
+
     print("\n[6/6] Loading models and making predictions ...")
 
     if not _model_exists(db, "aqi_24h"):
@@ -415,7 +412,8 @@ def predict_and_store(feature_dict, db):
         model      = bundle["model"]
         scaler     = bundle["scaler"]
         model_name = bundle["model_name"]
-        feat_cols  = bundle["feature_columns"]   # exact 55 features this model was trained on
+        horizon   = HORIZON_MAP[target]  #different features for each horizon
+        feat_cols = get_features(horizon) 
 
         # Build feature vector using exact columns this model was trained on
         # Use .get() with np.nan fallback — safer than direct dict access

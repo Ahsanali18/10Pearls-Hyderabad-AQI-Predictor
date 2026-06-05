@@ -1,28 +1,9 @@
 """
-src/features/feature_engineering.py
-=====================================
 Hyderabad AQI — Feature Engineering
-
 TARGET DEFINITION — daily mean AQI:
     aqi_24h = mean AQI over t+1  → t+24   (Day 1)
     aqi_48h = mean AQI over t+25 → t+48   (Day 2)
     aqi_72h = mean AQI over t+49 → t+72   (Day 3)
-
-WHY DAY 2 WAS STILL WEAK (R²=0.449):
-─────────────────────────────────────────────────────
-    Day 2 sits in a middle-horizon gap:
-    - Lag anchors (lag_48h r=0.570) are weaker than Day 1's lag_24h (r=0.743)
-    - Future weather at t+48 alone is not enough context
-    - The model had no direct signal about what AQI will be at t+24
-      (the bridge between Day 1 and Day 2)
-
-THE FIX — bridge features for Day 2:
-─────────────────────────────────────────────────────
-    1. aqi_36h_lag   — AQI at t-36h  (midpoint anchor between 24h and 48h)
-    2. future weather at t+36h  — midpoint between Day1 and Day2 horizon
-    3. aqi_day1_pred_proxy — rolling mean of t+1..t+24 window using
-       available past data (gives the model an estimate of Day1 AQI
-       which is the strongest predictor of Day2 AQI)
 
 FEATURE GROUPS (55 total):
 ─────────────────────────────────────────────────────────────────
@@ -40,7 +21,7 @@ Lag Features                  (8)   added lag_36h as Day2 bridge anchor
 Rolling Statistics            (3)
 Derived                       (4)
 ─────────────────────────────────────────────────────────────────
-TOTAL                        55
+TOTAL                         60
 """
 
 import numpy as np
@@ -141,6 +122,32 @@ TARGET_COLUMNS = [
     "aqi_48h",
     "aqi_72h",
 ]
+
+
+IRRELEVANT_48H = {"aqi_lag_1h", "aqi_lag_3h", "aqi_change_rate"}
+
+IRRELEVANT_72H = {"aqi_lag_1h", "aqi_lag_3h", "aqi_lag_6h", "aqi_lag_12h", "aqi_change_rate"}
+
+
+def get_features(horizon: str):
+    """
+    Return the filtered feature list for a given forecast horizon.
+    Args:
+        horizon: one of "24h", "48h", "72h"
+ 
+    Returns:
+        List of feature column names relevant to that horizon."""
+    
+    if horizon == "24h":
+        return list(FEATURE_COLUMNS)
+    elif horizon == "48h":
+        return [f for f in FEATURE_COLUMNS if f not in IRRELEVANT_48H]
+    elif horizon == "72h":
+        return [f for f in FEATURE_COLUMNS if f not in IRRELEVANT_72H]
+    else:
+        raise ValueError(f"horizon must be '24h', '48h', or '72h' — got '{horizon}'")
+
+
 
 
 def _add_targets(df):
@@ -269,7 +276,7 @@ def engineer_features(df: pd.DataFrame):
 
 def compute_live_features(current_row: dict, history_df: pd.DataFrame, forecast_df: pd.DataFrame):
     """
-    Compute all 55 features for one live row at inference time.
+    Compute all 56 features for one live row at inference time.
 
     Args:
         current_row  : dict — current hour's sensor values

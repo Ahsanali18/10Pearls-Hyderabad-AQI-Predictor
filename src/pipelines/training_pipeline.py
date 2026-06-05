@@ -8,14 +8,31 @@ Trains 3 models per target (no hyperparameter tuning):
     2. RandomForest      — tree ensemble, handles non-linearity well
     3. XGBoost           — gradient boosting, typically strongest performer
 
-Targets (point-ahead):
-    aqi_24h  → AQI at t+24h  (Day 1)
-    aqi_48h  → AQI at t+48h  (Day 2)
-    aqi_72h  → AQI at t+72h  (Day 3)
+Targets (non-overlapping daily mean windows):
+    aqi_24h  → mean AQI over t+1  → t+24   (Day 1)
+    aqi_48h  → mean AQI over t+25 → t+48   (Day 2)
+    aqi_72h  → mean AQI over t+49 → t+72   (Day 3)
+
+Features:
+    Each horizon uses a filtered feature set via get_features(horizon).
+    Longer horizons drop short-lag and fast-change features that carry
+    no predictive signal at that distance.
+        24h → 60 features
+        48h → 57 features  (drops aqi_lag_1h, aqi_lag_3h, aqi_change_rate)
+        72h → 55 features  (drops above + aqi_lag_6h, aqi_lag_12h)
+
+Hyperparameters:
+    Tuned per horizon — longer horizons use shallower trees and
+    heavier regularization to prevent overfitting on weaker signal.
 
 Split:
     Strict chronological 80/20 — NO shuffling.
     Time series must never be shuffled or future data leaks into training.
+
+Scaler:
+    One StandardScaler fitted per horizon on that horizon's feature set.
+    Used only for LinearRegression — tree models are scale-invariant.
+    Saved in bundle so live pipeline can apply correct scaler per model.
 
 Evaluation metrics:
     RMSE — penalises large errors heavily (good for AQI spikes)
@@ -23,15 +40,15 @@ Evaluation metrics:
     R²   — fraction of variance explained (0=baseline, 1=perfect)
 
 Saves:
-    Best model per target (lowest test RMSE) → MongoDB GridFS
-    Bundle includes: model + scaler + feature_columns + metadata
+    All 9 models to MongoDB GridFS (3 models × 3 horizons).
+    Best model per horizon (lowest RMSE) marked with is_best=True.
+    Bundle includes: model + scaler + feature_columns + metadata.
+    Live pipeline loads bundle and uses feature_columns directly.
 """
 
 import copy
 import numpy as np
 import pandas as pd
-import gridfs
-    
 
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
@@ -40,7 +57,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from xgboost import XGBRegressor
 
 from config.settings import MONGO_COLLECTION, MONGO_MODELS_COLLECTION
-from src.features.feature_engineering import FEATURE_COLUMNS, TARGET_COLUMNS
+from src.features.feature_engineering import TARGET_COLUMNS, get_features
 from src.database.database_connection import get_db_client
 from src.database.model_registry import save_model
 
@@ -48,19 +65,30 @@ from src.database.model_registry import save_model
 RANDOM_SEED = 42
 TRAIN_RATIO = 0.80
 
+HORIZON_MAP = {
+    "aqi_24h": "24h",
+    "aqi_48h": "48h",
+    "aqi_72h": "72h",
+}
 
-# FETCH FEATURES FROM MONGODB
+
+# ── Step 1 — Fetch features from MongoDB ──────────────────────
+
 def fetch_features(col):
     """
     Fetch all engineered feature rows from MongoDB.
-    Filter: only rows where aqi_24h is not null
-    (ensures all 3 targets are present — backfill dropped the tail rows).
+    Filters to rows where aqi_24h is not null — guarantees all
+    3 targets are present (backfill drops the tail rows).
+    Uses the full 60-column set for fetching; each horizon
+    selects its own subset during training.
     """
     print("\n" + "=" * 60)
     print("STEP 1 — FETCHING FEATURES FROM MONGODB")
     print("=" * 60)
 
-    projection = {c: 1 for c in FEATURE_COLUMNS + TARGET_COLUMNS}
+    # Fetch all 55 features + all 3 targets
+    all_features = get_features("24h")   # full 60-column list
+    projection   = {c: 1 for c in all_features + TARGET_COLUMNS}
     projection["timestamp"] = 1
     projection["_id"]       = 0
 
@@ -70,105 +98,158 @@ def fetch_features(col):
 
     print(f"  Fetched    : {len(df):,} rows")
     print(f"  Date range : {df['timestamp'].iloc[0]}  →  {df['timestamp'].iloc[-1]}")
-    print(f"  Features   : {len(FEATURE_COLUMNS)}")
     print(f"  Targets    : {TARGET_COLUMNS}")
 
-    # Sanity: check for NaN in feature columns
-    nan_counts = df[FEATURE_COLUMNS].isnull().sum()
+    # NaN check across all 55 features
+    nan_counts = df[all_features].isnull().sum()
     nan_cols   = nan_counts[nan_counts > 0]
     if len(nan_cols) > 0:
         print(f"\n  [WARN] NaN values found — forward-filling ...")
         print(nan_cols)
-        df[FEATURE_COLUMNS] = df[FEATURE_COLUMNS].ffill().fillna(0)
+        df[all_features] = df[all_features].ffill().fillna(0)
     else:
         print("  [OK] No NaN values in features")
 
     return df
 
 
-# CHRONOLOGICAL TRAIN / TEST SPLIT
-def prepare_splits(df):
-    print("\n" + "=" * 60)
-    print("STEP 2 — CHRONOLOGICAL TRAIN/TEST SPLIT  (80/20)")
-    print("=" * 60)
+# ── Step 2 — Chronological train/test split ───────────────────
+
+def prepare_split(df, horizon):
+    """
+    Chronological 80/20 split for a specific horizon.
+    Each horizon gets its own filtered feature list and its own scaler.
+
+    Returns:
+        X_train, X_test            — raw arrays for tree models
+        X_train_scaled, X_test_scaled — scaled arrays for LinearRegression
+        y_train, y_test            — target series
+        scaler                     — fitted StandardScaler for this horizon
+        feat_cols                  — feature list used (for saving in bundle)
+    """
+    target    = f"aqi_{horizon}"
+    feat_cols = get_features(horizon)
 
     df        = df.sort_values("timestamp").reset_index(drop=True)
     split_idx = int(len(df) * TRAIN_RATIO)
     split_ts  = df["timestamp"].iloc[split_idx]
 
-    print(f"  Train : {df['timestamp'].iloc[0]}  →  {split_ts}  ({split_idx:,} rows)")
-    print(f"  Test  : {split_ts}  →  {df['timestamp'].iloc[-1]}  "
+    print(f"\n  Horizon : {horizon}  |  Features : {len(feat_cols)}")
+    print(f"  Train   : {df['timestamp'].iloc[0]}  →  {split_ts}  ({split_idx:,} rows)")
+    print(f"  Test    : {split_ts}  →  {df['timestamp'].iloc[-1]}  "
           f"({len(df) - split_idx:,} rows)")
 
-    X_train = df.iloc[:split_idx][FEATURE_COLUMNS].values
-    X_test  = df.iloc[split_idx:][FEATURE_COLUMNS].values
-    y_train = df.iloc[:split_idx][TARGET_COLUMNS]
-    y_test  = df.iloc[split_idx:][TARGET_COLUMNS]
+    X_train = df.iloc[:split_idx][feat_cols].values
+    X_test  = df.iloc[split_idx:][feat_cols].values
+    y_train = df.iloc[:split_idx][target]
+    y_test  = df.iloc[split_idx:][target]
 
-    # Check for distribution shift between train and test
-    print()
-    for target in TARGET_COLUMNS:
-        tr_mean = y_train[target].mean()
-        te_mean = y_test[target].mean()
-        gap     = abs(tr_mean - te_mean)
-        flag    = "[WARN] Large shift" if gap > 15 else "[OK]  "
-        print(f"  {flag}  {target:<10}  "
-              f"train_mean={tr_mean:.1f}  test_mean={te_mean:.1f}  "
-              f"gap={gap:.1f}")
+    # Distribution shift check
+    gap  = abs(y_train.mean() - y_test.mean())
+    flag = "[WARN] Large shift" if gap > 15 else "[OK]  "
+    print(f"  {flag}  train_mean={y_train.mean():.1f}  "
+          f"test_mean={y_test.mean():.1f}  gap={gap:.1f}")
 
-    # Scaler for Linear Regression (tree models don't need scaling)
+    # Scaler fitted on this horizon's feature set only
     scaler         = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled  = scaler.transform(X_test)
 
-    return X_train, X_test, X_train_scaled, X_test_scaled, y_train, y_test, scaler
+    return X_train, X_test, X_train_scaled, X_test_scaled, \
+           y_train, y_test, scaler, feat_cols
 
 
-# DEFINE MODELS
-def get_models():
+# ── Step 3 — Define models per horizon ────────────────────────
+
+def get_models(horizon):
     """
-    LinearRegression : needs_scale=True  (features must be standardised)
-    RandomForest     : needs_scale=False (tree-based, scale-invariant)
-    XGBoost          : needs_scale=False (tree-based, scale-invariant)
+    Per-horizon hyperparameters.
+    Longer horizons use shallower trees and heavier regularization
+    because the signal is weaker and overfitting risk is higher.
     """
-    return {
-        "LinearRegression": {
-            "model":       LinearRegression(),
-            "needs_scale": True,
-        },
-        "RandomForest": {
-            "model": RandomForestRegressor(
-                n_estimators=300,        # 300 trees — good bias-variance balance
-                max_depth=10,            # Prevents overfitting on 12k rows
-                min_samples_leaf=10,     # Smooths leaf predictions
-                max_features=0.7,        # 70% features per split — reduces correlation
+    if horizon == "24h":
+        return {
+            "LinearRegression": LinearRegression(),
+            "RandomForest": RandomForestRegressor(
+                n_estimators=300,
+                max_depth=10,
+                min_samples_leaf=10,
+                min_samples_split=20,
+                max_features=0.7,
                 random_state=RANDOM_SEED,
                 n_jobs=-1,
             ),
-            "needs_scale": False,
-        },
-        "XGBoost": {
-            "model": XGBRegressor(
-                n_estimators=500,        # More trees needed for boosting
-                max_depth=5,             # Shallow trees, many of them
-                learning_rate=0.05,      # Small steps = more stable learning
-                subsample=0.8,           # 80% row subsampling per tree
-                colsample_bytree=0.8,    # 80% feature subsampling per tree
-                min_child_weight=5,      # Regularisation — min samples per leaf
-                reg_alpha=0.1,           # L1 regularisation
-                reg_lambda=1.0,          # L2 regularisation
+            "XGBoost": XGBRegressor(
+                n_estimators=500,
+                learning_rate=0.05,
+                max_depth=5,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                min_child_weight=5,
+                reg_alpha=0.1,
+                reg_lambda=1.0,
                 random_state=RANDOM_SEED,
                 verbosity=0,
                 n_jobs=-1,
             ),
-            "needs_scale": False,
-        },
-    }
+        }
+    elif horizon == "48h":
+        return {
+            "LinearRegression": LinearRegression(),
+            "RandomForest": RandomForestRegressor(
+                n_estimators=300,
+                max_depth=6,             # shallower — weaker signal at 48h
+                min_samples_leaf=20,
+                min_samples_split=40,
+                max_features=0.6,
+                random_state=RANDOM_SEED,
+                n_jobs=-1,
+            ),
+            "XGBoost": XGBRegressor(
+                n_estimators=300,
+                learning_rate=0.03,      # slower learning
+                max_depth=4,
+                subsample=0.7,
+                colsample_bytree=0.7,
+                min_child_weight=8,
+                reg_alpha=0.5,
+                reg_lambda=3.0,          # heavier regularization
+                random_state=RANDOM_SEED,
+                verbosity=0,
+                n_jobs=-1,
+            ),
+        }
+    else:  # 72h
+        return {
+            "LinearRegression": LinearRegression(),
+            "RandomForest": RandomForestRegressor(
+                n_estimators=300,
+                max_depth=4,             # shallowest — weakest signal at 72h
+                min_samples_leaf=30,
+                min_samples_split=60,
+                max_features=0.5,
+                random_state=RANDOM_SEED,
+                n_jobs=-1,
+            ),
+            "XGBoost": XGBRegressor(
+                n_estimators=200,
+                learning_rate=0.03,
+                max_depth=3,
+                subsample=0.6,
+                colsample_bytree=0.6,
+                min_child_weight=12,
+                reg_alpha=1.0,
+                reg_lambda=5.0,          # heaviest regularization
+                random_state=RANDOM_SEED,
+                verbosity=0,
+                n_jobs=-1,
+            ),
+        }
 
 
-# TRAIN & EVALUATE
+# ── Step 4 — Train and evaluate ───────────────────────────────
+
 def _compute_metrics(y_true, y_pred):
-    """Compute RMSE, MAE, R² and return as dict."""
     return {
         "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
         "mae":  float(mean_absolute_error(y_true, y_pred)),
@@ -176,34 +257,46 @@ def _compute_metrics(y_true, y_pred):
     }
 
 
-def train_all_models(X_train, X_test, X_train_scaled, X_test_scaled,
-                     y_train, y_test):
+def train_all_models(df):
     """
-    Train each of the 3 models on each of the 3 targets.
-    Prints a comparison table per target.
+    Train 3 models × 3 horizons = 9 fits total.
+    Each horizon uses its own filtered features, split, and scaler.
 
     Returns:
-        results : dict[target][model_name] = {rmse, mae, r2}
-        trained : dict[target][model_name] = fitted model object
+        results : dict[horizon][model_name] = {rmse, mae, r2}
+        trained : dict[horizon][model_name] = fitted model object
+        scalers : dict[horizon]             = fitted StandardScaler
+        feat_map: dict[horizon]             = feature list used
     """
     print("\n" + "=" * 60)
-    print("STEP 3 — TRAINING  (3 models × 3 targets = 9 fits)")
+    print("STEP 3 — TRAINING  (3 models × 3 horizons = 9 fits)")
     print("=" * 60)
 
-    models  = get_models()
-    results = {t: {} for t in TARGET_COLUMNS}
-    trained = {t: {} for t in TARGET_COLUMNS}
+    results  = {}
+    trained  = {}
+    scalers  = {}
+    feat_map = {}
 
-    for target in TARGET_COLUMNS:
-        y_tr = y_train[target].values
-        y_te = y_test[target].values
+    for horizon in ["24h", "48h", "72h"]:
+        print(f"\n{'─' * 60}")
+        print(f"  HORIZON: {horizon}")
+        print(f"{'─' * 60}")
 
-        # Naive baseline — always predict training mean
+        X_train, X_test, X_train_scaled, X_test_scaled, \
+            y_train, y_test, scaler, feat_cols = prepare_split(df, horizon)
+
+        scalers[horizon]  = scaler
+        feat_map[horizon] = feat_cols
+
+        models     = get_models(horizon)
+        y_tr       = y_train.values
+        y_te       = y_test.values
+
+        # Naive baseline
         naive_pred = np.full_like(y_te, y_tr.mean(), dtype=float)
         naive      = _compute_metrics(y_te, naive_pred)
 
-        print(f"\n  ── {target} ──────────────────────────────────────────")
-        print(f"  {'Model':<22} {'RMSE':>7} {'MAE':>7} {'R²':>7}  "
+        print(f"\n  {'Model':<22} {'RMSE':>7} {'MAE':>7} {'R²':>7}  "
               f"{'TrainR²':>8}  {'Overfit':>8}")
         print(f"  {'-'*62}")
         print(f"  {'Baseline (mean)':<22} "
@@ -211,10 +304,13 @@ def train_all_models(X_train, X_test, X_train_scaled, X_test_scaled,
               f"{naive['r2']:>7.3f}  ← must beat this")
         print(f"  {'-'*62}")
 
-        for model_name, cfg in models.items():
-            m = copy.deepcopy(cfg["model"])
+        results[horizon] = {}
+        trained[horizon] = {}
 
-            if cfg["needs_scale"]:
+        for model_name, model in models.items():
+            m = copy.deepcopy(model)
+
+            if model_name == "LinearRegression":
                 m.fit(X_train_scaled, y_tr)
                 tr_pred = m.predict(X_train_scaled)
                 te_pred = m.predict(X_test_scaled)
@@ -233,95 +329,110 @@ def train_all_models(X_train, X_test, X_train_scaled, X_test_scaled,
                   f"{te_metrics['mae']:>7.2f} "
                   f"{te_metrics['r2']:>7.3f}  "
                   f"{tr_metrics['r2']:>8.3f}  "
-                  f"{overfit:>8.3f}"
-                  f"{flag}")
+                  f"{overfit:>8.3f}{flag}")
 
-            results[target][model_name] = te_metrics
-            trained[target][model_name] = m
+            results[horizon][model_name] = te_metrics
+            trained[horizon][model_name] = m
 
-    return results, trained
+    return results, trained, scalers, feat_map
 
 
-# SUMMARY TABLE
+# ── Step 5 — Summary ──────────────────────────────────────────
+
 def print_summary(results):
-    """Print a clean final summary across all targets and models."""
     print("\n" + "=" * 60)
     print("FINAL SUMMARY")
     print("=" * 60)
-    print(f"  {'Model':<22} {'Target':<12} {'RMSE':>7} {'MAE':>7} {'R²':>7}")
-    print(f"  {'-'*54}")
+    print(f"  {'Model':<22} {'Horizon':<10} {'RMSE':>7} {'MAE':>7} {'R²':>7}")
+    print(f"  {'-'*57}")
 
-    for target in TARGET_COLUMNS:
-        best = min(results[target], key=lambda m: results[target][m]["rmse"])
-        for model_name, m in results[target].items():
+    for horizon in ["24h", "48h", "72h"]:
+        best = min(results[horizon], key=lambda m: results[horizon][m]["rmse"])
+        for model_name, m in results[horizon].items():
             marker = "  ← best" if model_name == best else ""
-            print(f"  {model_name:<22} {target:<12} "
+            print(f"  {model_name:<22} {horizon:<10} "
                   f"{m['rmse']:>7.2f} {m['mae']:>7.2f} {m['r2']:>7.3f}"
                   f"{marker}")
         print()
 
 
-# Save Models
-def save_best_models(results, trained, scaler, db):
-    """
-    Save ALL 9 trained models to MongoDB for comparison display.
-    Marks the winner per target with is_best=True.
-    """
+# ── Step 6 — Save all models ──────────────────────────────────
 
+def save_best_models(results, trained, scalers, feat_map, db):
+    """
+    Save all 9 models to MongoDB GridFS.
+    Best per horizon (lowest RMSE) marked is_best=True.
+
+    Bundle saved per model:
+        model           — fitted model object
+        scaler          — StandardScaler fitted on this horizon's features
+        model_name      — "LinearRegression" / "RandomForest" / "XGBoost"
+        target          — "aqi_24h" / "aqi_48h" / "aqi_72h"
+        feature_columns — exact filtered list used for this horizon
+        is_best         — True for best model per horizon
+
+    Live pipeline calls:
+        bundle    = load_model(db, target)
+        feat_cols = bundle["feature_columns"]   ← uses this directly
+        scaler    = bundle["scaler"]
+    """
     print("\n" + "=" * 60)
     print("STEP 4 — SAVING ALL MODELS TO MONGODB")
     print("=" * 60)
-    
-    # Wipe old documents
+
     models_col = db[MONGO_MODELS_COLLECTION]
     deleted    = models_col.delete_many({})
     print(f"\n  Cleared {deleted.deleted_count} old model documents")
 
-    for target in TARGET_COLUMNS:
+    for horizon in ["24h", "48h", "72h"]:
+        target    = f"aqi_{horizon}"
+        feat_cols = feat_map[horizon]
+        scaler    = scalers[horizon]
 
-        # Pick winner for this target
         best_name = min(
-            results[target],
-            key=lambda m: results[target][m]["rmse"]
+            results[horizon],
+            key=lambda m: results[horizon][m]["rmse"]
         )
 
-        print(f"\n  Target : {target}  |  Best : {best_name}")
+        print(f"\n  Horizon : {horizon}  |  Target : {target}  "
+              f"|  Best : {best_name}  |  Features : {len(feat_cols)}")
         print(f"  {'Model':<22} {'RMSE':>7} {'MAE':>7} {'R²':>7}  Saved as")
         print(f"  {'-'*65}")
 
-        for model_name, model in trained[target].items():
-            metrics  = results[target][model_name]
-            is_best  = (model_name == best_name)
-            
+        for model_name, model in trained[horizon].items():
+            metrics = results[horizon][model_name]
+            is_best = (model_name == best_name)
+
             bundle = {
                 "model":           model,
-                "scaler":          scaler,
+                "scaler":          scaler,        # per-horizon scaler
                 "model_name":      model_name,
                 "target":          target,
-                "feature_columns": FEATURE_COLUMNS,
+                "feature_columns": feat_cols,     # filtered per horizon
                 "is_best":         is_best,
             }
 
-            # Save models uses target+model_name
             save_model(db, bundle, metrics, model_name, is_best=is_best)
-            
+
             star = " ★" if is_best else "  "
             print(f"  {model_name:<22}{star} "
                   f"{metrics['rmse']:>7.2f} "
                   f"{metrics['mae']:>7.2f} "
                   f"{metrics['r2']:>7.3f}")
 
-    print("\n  All models saved to model registry, Successfully!")
+    print("\n  All models saved successfully.")
 
-# MAIN
+
+# ── Main ──────────────────────────────────────────────────────
+
 def run_training():
     print("\n" + "=" * 60)
     print("HYDERABAD AQI — TRAINING PIPELINE")
     print("=" * 60)
-    print("  Models  : LinearRegression, RandomForest, XGBoost")
-    print("  Targets : aqi_24h (Day1), aqi_48h (Day2), aqi_72h (Day3)")
-    print("  Tuning  : OFF — sensible defaults")
-    print("  Split   : 80% train / 20% test  (chronological)")
+    print("  Models   : LinearRegression, RandomForest, XGBoost")
+    print("  Horizons : 24h (Day1), 48h (Day2), 72h (Day3)")
+    print("  Features : 60 / 57 / 55  (filtered per horizon)")
+    print("  Split    : 80% train / 20% test  (chronological)")
     print("=" * 60)
 
     client, db = get_db_client()
@@ -329,17 +440,10 @@ def run_training():
 
     df = fetch_features(col)
 
-    X_train, X_test, X_train_scaled, X_test_scaled, \
-        y_train, y_test, scaler = prepare_splits(df)
-
-    results, trained = train_all_models(
-        X_train, X_test,
-        X_train_scaled, X_test_scaled,
-        y_train, y_test,
-    )
+    results, trained, scalers, feat_map = train_all_models(df)
 
     print_summary(results)
-    save_best_models(results, trained, scaler, db)
+    save_best_models(results, trained, scalers, feat_map, db)
 
     client.close()
 

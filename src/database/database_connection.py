@@ -1,8 +1,7 @@
 """
-src/db/database_connection.py
-=======================
-Single MongoDB connection used by all pipelines and dashboard.
-Never create MongoClient anywhere else — always import get_db().
+Database connection module:
+Used by all pipelines and dashboard as a central place following (DRY PRINCIPLE).
+Never create MongoClient anywhere else.
 """
 
 from pymongo import MongoClient
