@@ -10,3 +10,4 @@ venv/
 dist/
 build/
 data/raw/*.json
+.streamlit/secrets.toml
