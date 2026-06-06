@@ -1,27 +1,5 @@
 """
-Hyderabad AQI — Feature Engineering
-TARGET DEFINITION — daily mean AQI:
-    aqi_24h = mean AQI over t+1  → t+24   (Day 1)
-    aqi_48h = mean AQI over t+25 → t+48   (Day 2)
-    aqi_72h = mean AQI over t+49 → t+72   (Day 3)
-
-FEATURE GROUPS (55 total):
-─────────────────────────────────────────────────────────────────
-Group                        Count
-─────────────────────────────────────────────────────────────────
-Weather current               (8)
-Pollutants current            (6)
-Future weather t+24           (5)   temp/wind/pressure/humidity/pm2_5
-Future weather t+36           (5)   bridge features for Day 2
-Future weather t+48           (5)
-Future weather t+72           (5)
-Cyclical Time                 (6)
-Time Flags                    (5)
-Lag Features                  (8)   added lag_36h as Day2 bridge anchor
-Rolling Statistics            (3)
-Derived                       (4)
-─────────────────────────────────────────────────────────────────
-TOTAL                         60
+Hyderabad AQI — Feature Engineering module, Builds complete engineered features that will be further used by training and live pipelines.
 """
 
 import numpy as np
@@ -248,7 +226,7 @@ def engineer_features(df: pd.DataFrame):
     """
     Full feature engineering for historical/backfill data.
     Input:  raw DataFrame with DatetimeIndex.
-    Output: 56 FEATURE_COLUMNS + 3 TARGET_COLUMNS + aqi.
+    Output: FEATURE_COLUMNS + 3 TARGET_COLUMNS + aqi.
     """
     df = df.copy()
     df.sort_index(inplace=True)
@@ -276,7 +254,7 @@ def engineer_features(df: pd.DataFrame):
 
 def compute_live_features(current_row: dict, history_df: pd.DataFrame, forecast_df: pd.DataFrame):
     """
-    Compute all 56 features for one live row at inference time.
+    Compute all features for one live row at inference time.
 
     Args:
         current_row  : dict — current hour's sensor values
