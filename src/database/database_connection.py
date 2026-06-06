@@ -10,7 +10,6 @@ import math
 def get_db_client():
     """
     Returns (client, db) tuple.
-    Always call client.close() when done in scripts.
     """
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10_000)
     return client, client[MONGO_DB_NAME]
