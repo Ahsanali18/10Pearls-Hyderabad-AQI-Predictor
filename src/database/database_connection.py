@@ -1,7 +1,5 @@
 """
-Database connection module:
-Used by all pipelines and dashboard as a central place following (DRY PRINCIPLE).
-Never create MongoClient anywhere else.
+Database connection module: Used by all pipelines and dashboard as a central place following (DRY PRINCIPLE).
 """
 
 from pymongo import MongoClient
