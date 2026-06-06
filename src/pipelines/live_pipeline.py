@@ -1,22 +1,5 @@
 """
-Hyderabad AQI — Live Inference Pipeline Module:
-Runs every hour via GitHub Actions.
-
-WHAT IT DOES:
-    1. Fetches current hour data from OpenMeteo forecast API
-    2. Fetches 4-day weather + air quality forecast from OpenMeteo
-    3. Reads last 72 rows from MongoDB (needed for lag features)
-    4. Computes all 55 features using compute_live_features()
-    5. Upserts current hour row to MongoDB features collection
-    6. Loads best models from MongoDB GridFS
-    7. Predicts Day1 (aqi_24h), Day2 (aqi_48h), Day3 (aqi_72h) AQI's.
-    8. Stores predictions in MongoDB predictions collection
-
-KEY DESIGN NOTES:
-    - aqi_24h = mean AQI over t+1..t+24  (Day 1)
-    - aqi_48h = mean AQI over t+25..t+48 (Day 2)
-    - aqi_72h = mean AQI over t+49..t+72 (Day 3)
-    - Day 2/3 quality depends heavily on aqi_lag_36h, aqi_lag_48h,
+Hyderabad AQI — Live Inference Pipeline Module: Runs every hour via GitHub Actions.
 """
 
 import sys
@@ -179,14 +162,9 @@ def fetch_forecast_df():
     """
     Fetches 4-day hourly weather + PM2.5 forecast from OpenMeteo.
     4 days covers t+72 (Day 3) and t+36 bridge features comfortably.
-
-    This DataFrame is passed directly to compute_live_features() which
-    calls get_forecast(col, hours_ahead) to look up t+24, t+36, t+48, t+72.
-
     Returns:
         DataFrame with DatetimeIndex and columns:
         temperature, wind_speed, pressure, humidity, pm2_5
-        Returns None on failure (pipeline continues with NaN futures).
     """
     print("\n[2/6] Fetching 4-day forecast for future weather features ...")
 
@@ -286,23 +264,11 @@ def fetch_history(col):
 
 # STEP 4 — Compute Features
 def build_feature_row(current_row, history_df, forecast_df):
-    """
-    Calls compute_live_features() and returns the complete feature dict.
 
-    Also adds 'timestamp' key (pd.Timestamp) derived from current_row['time']
-    since compute_live_features() doesn't return it — needed for MongoDB upsert.
-
-    Logs key features so you can verify correctness at a glance:
-        - Lag features → tells if history is feeding through correctly
-        - Future features → tells if forecast API is feeding through
-        - Bridge features → tells if Day 2/3 inputs are populated
-    """
     print("\n[4/6] Computing features ...")
 
     feature_dict = compute_live_features(current_row, history_df, forecast_df)
 
-    # Add timestamp — compute_live_features() doesn't return this key
-    # but upsert_feature_row() and predict_and_store() both need it
     feature_dict["timestamp"] = pd.Timestamp(current_row["time"])
 
     # Feature quality report 
@@ -337,10 +303,7 @@ def build_feature_row(current_row, history_df, forecast_df):
 def upsert_feature_row(col, feature_dict):
     """
     Upserts the current hour's complete feature row to MongoDB.
-    Uses timestamp as unique key — idempotent, safe to re-run.
-
-    Skips 'timestamp' and non-feature keys during doc build so MongoDB
-    doesn't get polluted with duplicate timestamp fields.
+    Uses timestamp as unique key.
     """
     print("\n[5/6] Upserting feature row to MongoDB ...")
 
@@ -380,11 +343,6 @@ def _model_exists(db, target):
 def predict_and_store(feature_dict, db):
     """
     Loads best model per target from MongoDB GridFS and predicts.
-
-    KEY NOTES:
-        - Tree models (XGBoost, RandomForest) take raw numpy array
-        - LinearRegression takes StandardScaler-transformed array
-
     Stores one prediction document per timestamp in predictions collection:
         timestamp, made_at, aqi_now, aqi_24h, aqi_48h, aqi_72h
     """
