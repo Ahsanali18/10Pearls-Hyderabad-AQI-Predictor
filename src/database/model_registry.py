@@ -1,21 +1,3 @@
-"""
-src/database/model_registry.py
-================================
-Save and load models from MongoDB GridFS.
-
-Who uses this:
-    training_pipeline.py → save_model()
-    live_pipeline.py     → load_model()   (unchanged — still works)
-    dashboard/app.py     → load_model()   (unchanged — still works)
-
-What changed vs previous version:
-    save_model() now accepts is_best flag.
-    Models are stored with a composite key (target + model_name),
-    so all 9 trained models are kept, not just the 3 winners.
-    The 3 winner models are ALSO saved under the plain target key
-    so live_pipeline.py continues to work with zero changes.
-"""
-
 import pickle
 import gridfs
 from datetime import datetime, timezone
@@ -23,25 +5,10 @@ from datetime import datetime, timezone
 from config.settings import MONGO_MODELS_COLLECTION
 
 
-# ─────────────────────────────────────────────────────────
 # SAVE
-# ─────────────────────────────────────────────────────────
-
 def save_model(db, bundle, metrics, model_name, is_best=False):
     """
     Save one model bundle to GridFS and upsert its metadata document.
-
-    Args:
-        db          : MongoDB database handle
-        storage_key : GridFS / collection key.
-                      Use  "aqi_24h_XGBoost"      for the full comparison record.
-                      Use  "aqi_24h"               for the best-model shortcut
-                                                   (called a second time by training
-                                                    pipeline for the winner).
-        bundle      : dict — {model, scaler, model_name, target, feature_columns}
-        metrics     : dict — {rmse, mae, r2}
-        model_name  : str  — "LinearRegression" | "RandomForest" | "XGBoost"
-        is_best     : bool — True only for the winner of each target
     """
     fs         = gridfs.GridFS(db)
     models_col = db[MONGO_MODELS_COLLECTION]
@@ -80,24 +47,10 @@ def save_model(db, bundle, metrics, model_name, is_best=False):
     print(f"        Saved [{target}_{model_name}]{star}  →  GridFS: {filename}")
 
 
-# ─────────────────────────────────────────────────────────
-# LOAD  (unchanged interface — live_pipeline.py safe)
-# ─────────────────────────────────────────────────────────
-
+# LOAD
 def load_model(db, target):
     """
     Load the best model bundle for a given target.
-
-    Called by live_pipeline.py and dashboard as:
-        load_model(db, "aqi_24h")
-        load_model(db, "aqi_48h")
-        load_model(db, "aqi_72h")
-
-    The training pipeline saves the winner under the plain target key,
-    so this lookup always returns the best model. No change needed here.
-
-    Returns:
-        dict — {model, scaler, model_name, target, feature_columns}
     """
     fs         = gridfs.GridFS(db)
     models_col = db[MONGO_MODELS_COLLECTION]
