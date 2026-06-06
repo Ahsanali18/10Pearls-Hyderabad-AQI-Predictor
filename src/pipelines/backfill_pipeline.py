@@ -1,19 +1,6 @@
 """
-src/pipelines/backfill_pipeline.py
-====================================
-Hyderabad AQI — Backfill Pipeline
-
-Loads historical merged JSON → applies feature engineering →
-upserts all rows into MongoDB Atlas (Feature Store).
-
-Re-run this whenever feature_engineering.py schema changes
-(e.g. adding/removing columns).
-
-Steps:
-    1. Load  raw JSON from data/raw/aqi_merged.json
-    2. Run   engineer_features() → 38 features + 3 targets
-    3. Connect to MongoDB
-    4. Upsert all rows in batches of 500
+Hyderabad AQI — Backfill Pipeline module:
+Loads historical data applies feature engineering → upserts all rows into MongoDB Atlas (Feature Store).
 """
 
 import json
