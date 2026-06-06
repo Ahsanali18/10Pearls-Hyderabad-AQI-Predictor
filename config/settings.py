@@ -13,7 +13,6 @@ TIMEZONE  = "Asia/Karachi"
 BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
  
-#Raw JSON: original untouched API responses
 MERGED_JSON_PATH = os.path.join(RAW_DATA_DIR, "aqi_merged.json")
 
 
