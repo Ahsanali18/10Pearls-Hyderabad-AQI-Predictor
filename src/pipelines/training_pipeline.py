@@ -1,49 +1,5 @@
 """
-src/pipelines/training_pipeline.py
-====================================
-Hyderabad AQI — Training Pipeline
-
-Trains 3 models per target (no hyperparameter tuning):
-    1. LinearRegression  — linear baseline
-    2. RandomForest      — tree ensemble, handles non-linearity well
-    3. XGBoost           — gradient boosting, typically strongest performer
-
-Targets (non-overlapping daily mean windows):
-    aqi_24h  → mean AQI over t+1  → t+24   (Day 1)
-    aqi_48h  → mean AQI over t+25 → t+48   (Day 2)
-    aqi_72h  → mean AQI over t+49 → t+72   (Day 3)
-
-Features:
-    Each horizon uses a filtered feature set via get_features(horizon).
-    Longer horizons drop short-lag and fast-change features that carry
-    no predictive signal at that distance.
-        24h → 60 features
-        48h → 57 features  (drops aqi_lag_1h, aqi_lag_3h, aqi_change_rate)
-        72h → 55 features  (drops above + aqi_lag_6h, aqi_lag_12h)
-
-Hyperparameters:
-    Tuned per horizon — longer horizons use shallower trees and
-    heavier regularization to prevent overfitting on weaker signal.
-
-Split:
-    Strict chronological 80/20 — NO shuffling.
-    Time series must never be shuffled or future data leaks into training.
-
-Scaler:
-    One StandardScaler fitted per horizon on that horizon's feature set.
-    Used only for LinearRegression — tree models are scale-invariant.
-    Saved in bundle so live pipeline can apply correct scaler per model.
-
-Evaluation metrics:
-    RMSE — penalises large errors heavily (good for AQI spikes)
-    MAE  — average absolute error in AQI units (easy to explain)
-    R²   — fraction of variance explained (0=baseline, 1=perfect)
-
-Saves:
-    All 9 models to MongoDB GridFS (3 models × 3 horizons).
-    Best model per horizon (lowest RMSE) marked with is_best=True.
-    Bundle includes: model + scaler + feature_columns + metadata.
-    Live pipeline loads bundle and uses feature_columns directly.
+Hyderabad AQI — Training Pipeline Module, trains all the models (LinearRegression, RandomForest, XGBoost) each for different horizons
 """
 
 import copy
@@ -77,8 +33,6 @@ HORIZON_MAP = {
 def fetch_features(col):
     """
     Fetch all engineered feature rows from MongoDB.
-    Filters to rows where aqi_24h is not null — guarantees all
-    3 targets are present (backfill drops the tail rows).
     Uses the full 60-column set for fetching; each horizon
     selects its own subset during training.
     """
@@ -160,12 +114,10 @@ def prepare_split(df, horizon):
 
 
 # ── Step 3 — Define models per horizon ────────────────────────
-
 def get_models(horizon):
     """
     Per-horizon hyperparameters.
     Longer horizons use shallower trees and heavier regularization
-    because the signal is weaker and overfitting risk is higher.
     """
     if horizon == "24h":
         return {
@@ -248,7 +200,6 @@ def get_models(horizon):
 
 
 # ── Step 4 — Train and evaluate ───────────────────────────────
-
 def _compute_metrics(y_true, y_pred):
     return {
         "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
@@ -261,12 +212,6 @@ def train_all_models(df):
     """
     Train 3 models × 3 horizons = 9 fits total.
     Each horizon uses its own filtered features, split, and scaler.
-
-    Returns:
-        results : dict[horizon][model_name] = {rmse, mae, r2}
-        trained : dict[horizon][model_name] = fitted model object
-        scalers : dict[horizon]             = fitted StandardScaler
-        feat_map: dict[horizon]             = feature list used
     """
     print("\n" + "=" * 60)
     print("STEP 3 — TRAINING  (3 models × 3 horizons = 9 fits)")
@@ -338,7 +283,6 @@ def train_all_models(df):
 
 
 # ── Step 5 — Summary ──────────────────────────────────────────
-
 def print_summary(results):
     print("\n" + "=" * 60)
     print("FINAL SUMMARY")
@@ -357,24 +301,10 @@ def print_summary(results):
 
 
 # ── Step 6 — Save all models ──────────────────────────────────
-
 def save_best_models(results, trained, scalers, feat_map, db):
     """
-    Save all 9 models to MongoDB GridFS.
-    Best per horizon (lowest RMSE) marked is_best=True.
-
-    Bundle saved per model:
-        model           — fitted model object
-        scaler          — StandardScaler fitted on this horizon's features
-        model_name      — "LinearRegression" / "RandomForest" / "XGBoost"
-        target          — "aqi_24h" / "aqi_48h" / "aqi_72h"
-        feature_columns — exact filtered list used for this horizon
-        is_best         — True for best model per horizon
-
-    Live pipeline calls:
-        bundle    = load_model(db, target)
-        feat_cols = bundle["feature_columns"]   ← uses this directly
-        scaler    = bundle["scaler"]
+    Save all models to MongoDB GridFS.
+    Best per horizon (lowest RMSE).
     """
     print("\n" + "=" * 60)
     print("STEP 4 — SAVING ALL MODELS TO MONGODB")
@@ -423,8 +353,7 @@ def save_best_models(results, trained, scalers, feat_map, db):
     print("\n  All models saved successfully.")
 
 
-# ── Main ──────────────────────────────────────────────────────
-
+# Main
 def run_training():
     print("\n" + "=" * 60)
     print("HYDERABAD AQI — TRAINING PIPELINE")
