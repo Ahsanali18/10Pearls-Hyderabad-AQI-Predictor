@@ -19,7 +19,7 @@ Hyderabad regularly experiences moderate to unhealthy air quality driven by vehi
 
 - Fetches hourly weather and air quality data from **Open-Meteo APIs** (archive, forecast, and current)
 - Engineers **60 features** across 11 categories — lag features, rolling statistics, cyclical time encodings, future weather anchors, and physics-derived interaction terms
-- Trains **3 separate XGBoost models** (one per horizon) using horizon-aware feature filtering
+- Trains **3 separate ML models (XGBoost, RandomForest, LinearRegression)** one per horizon using horizon-aware feature filtering
 - Stores all features and model artifacts in **MongoDB Atlas**
 - Serves a live **Streamlit dashboard** showing current AQI, pollutant breakdown, and 3-day forecast cards
 - Runs on a **GitHub Actions schedule** — ingestion every hour, retraining daily — zero human intervention required
