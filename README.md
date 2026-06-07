@@ -3,6 +3,7 @@
 A production-grade machine learning system that forecasts the **US Air Quality Index (AQI) for Hyderabad, Sindh, Pakistan** across three daily horizons — Day 1 (next 24h), Day 2 (next 48h), and Day 3 (next 72h). The system runs fully autonomously on free-tier infrastructure, updating predictions every hour without any manual intervention.
 
 🔗 **[View Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/)**
+---
 <img width="1654" height="756" alt="image" src="https://github.com/user-attachments/assets/bf202677-a02e-4fdd-ae48-a91394f6b137" />
 
 
@@ -198,8 +199,8 @@ Both workflows use `MONGODB_URI` from GitHub Secrets.
 
 ---
 
-## Author **Ahsan Ali**
-## Organization — 10Pearls Internship Project
-· 📊 [Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/) · 📄 [Full Project Report](./Report.md)
+## Author: **Ahsan Ali**
+## Organization: 10Pearls Internship Project
+· 📄 [Full Project Report](./Report.md)
 
 *Data source: Open-Meteo · Location: 25.396°N, 68.358°E — Hyderabad, Sindh, Pakistan*
