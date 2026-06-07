@@ -38,9 +38,9 @@ Three models are trained daily (XGBoost, RandomForest, LinearRegression) and eva
 | 48h | XGBoost ★ | 5.49 | 7.17 | 0.787 | Best |
 | 48h | LinearRegression | 5.71 | 7.35 | 0.776 | — |
 | 48h | RandomForest | 6.39 | 8.23 | 0.719 | — |
-| 72h | XGBoost ★ | 6.04 | 7.82 | 0.7477 | Best |
-| 72h | LinearRegression | 6.25 | 7.88 | 0.7440 | — |
-| 72h | RandomForest | 9.07 | 7.03 | 0.6607 | — |
+| 72h | XGBoost ★ | 6.04 | 7.82 | 0.748 | Best |
+| 72h | LinearRegression | 6.25 | 7.88 | 0.744 | — |
+| 72h | RandomForest | 7.03 | 9.07 | 0.6607 | — |
  
 
 > These scores reflect the latest production training run. Since training happens daily with fresh data, exact values may shift slightly over time. Each horizon has its own dedicated model — no autoregressive error compounding across days.
@@ -60,7 +60,7 @@ Three models are trained daily (XGBoost, RandomForest, LinearRegression) and eva
                │                               │
                ▼                               ▼
 ┌──────────────────────────┐     ┌─────────────────────────────┐
-│     Open-Meteo APIs      │     │       MongoDB Atlas          │
+│     Open-Meteo APIs      │     │       MongoDB Atlas         │
 │  - Archive API           │────▶│  - aqi_features collection  │
 │  - Forecast API          │     │  - weather_forecast         │
 │  - Air Quality API       │     │  - predictions              │
@@ -71,7 +71,7 @@ Three models are trained daily (XGBoost, RandomForest, LinearRegression) and eva
                │                                │
                ▼                                ▼
 ┌──────────────────────────┐     ┌─────────────────────────────┐
-│    Live Pipeline         │     │     Streamlit Dashboard      │
+│    Live Pipeline         │     │     Streamlit Dashboard     │
 │  - Feature engineering   │     │  - Current AQI gauge        │
 │  - Horizon-aware filter  │     │  - 3-day forecast cards     │
 │  - Model inference       │     │  - Pollutant breakdown      │
