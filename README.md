@@ -193,7 +193,6 @@ Both workflows use `MONGODB_URI` from GitHub Secrets.
 | Hosting | Streamlit Cloud |
 | Version Control | Git + GitHub |
 
-**Total infrastructure cost: $0**
 
 ---
 
