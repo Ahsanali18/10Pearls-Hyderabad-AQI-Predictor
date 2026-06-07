@@ -3,6 +3,8 @@
 A production-grade machine learning system that forecasts the **US Air Quality Index (AQI) for Hyderabad, Sindh, Pakistan** across three daily horizons — Day 1 (next 24h), Day 2 (next 48h), and Day 3 (next 72h). The system runs fully autonomously on free-tier infrastructure, updating predictions every hour without any manual intervention.
 
 🔗 **[View Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/)**
+<img width="1654" height="756" alt="image" src="https://github.com/user-attachments/assets/bf202677-a02e-4fdd-ae48-a91394f6b137" />
+
 
 ---
 
