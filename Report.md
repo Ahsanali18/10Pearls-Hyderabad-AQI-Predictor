@@ -367,8 +367,8 @@ The system has been running autonomously since deployment — fetching live data
 
 ---
 
-*Author: Ahsan Ali*
-*Data source: Open-Meteo*
-*Organization: 10Pearls — Internship Project*
-*Repository: https://github.com/Ahsanali18/10Pearls-Hyderabad-AQI-Predictor*
-*Live Dashboard: [Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/)*
+- **Author:** Ahsan Ali
+- **Data Source:** Open-Meteo
+- **Organization:** 10Pearls — Internship Project
+- **Repository:** https://github.com/Ahsanali18/10Pearls-Hyderabad-AQI-Predictor
+- **Live Dashboard:** [Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/)
