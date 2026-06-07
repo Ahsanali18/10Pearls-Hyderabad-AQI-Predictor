@@ -7,7 +7,6 @@
 **Data Period:** January 4, 2025 → May 27, 2026 (16 months · 12,352 hourly rows)
 **Live Dashboard:** 🔗 [View Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/)
 
-
 ## 1. Background
 
 Hyderabad, the second-largest city in Sindh, Pakistan, regularly experiences moderate to unhealthy air quality driven by vehicular traffic, industrial activity, dust storms, and seasonal temperature inversions. Residents, healthcare workers, and urban planners lack access to localized multi-day AQI forecasts — existing services either focus on Karachi or provide only current readings without future context.
@@ -178,9 +177,9 @@ A comprehensive Exploratory Data Analysis — EDA was conducted to ground every 
 | 48h | XGBoost ★ | 5.49 | 7.17 | 0.787 | Best |
 | 48h | LinearRegression | 5.71 | 7.35 | 0.776 | — |
 | 48h | RandomForest | 6.39 | 8.23 | 0.719 | — |
-| 72h | XGBoost ★ | 6.04 | 7.82 | 0.746 | Best |
-| 72h | LinearRegression | 5.95 | 7.58 | 0.762 | — |
-| 72h | RandomForest | 6.96 | 9.03 | 0.662 | — |
+| 72h | XGBoost ★ | 6.04 | 7.82 | 0.747 | Best |
+| 72h | LinearRegression | 6.25 | 7.88 | 0.744 | — |
+| 72h | RandomForest | 7.03 | 9.07 | 0.660 | — |
 
 ### 6.1 Why XGBoost Wins All Horizons After Full Dataset Extension
 
