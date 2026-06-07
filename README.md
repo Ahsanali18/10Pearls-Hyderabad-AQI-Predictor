@@ -196,10 +196,8 @@ Both workflows use `MONGODB_URI` from GitHub Secrets.
 
 ---
 
-## Author
-
-**Ahsan Ali** — 10Pearls Internship Project
-
-📂 [Repository](https://github.com/Ahsanali18/10Pearls-Hyderabad-AQI-Predictor) · 📊 [Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/) · 📄 [Full Report](./Report.md)
+## Author **Ahsan Ali**
+## Organization — 10Pearls Internship Project
+· 📊 [Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/) · 📄 [Full Project Report](./Report.md)
 
 *Data source: Open-Meteo · Location: 25.396°N, 68.358°E — Hyderabad, Sindh, Pakistan*
