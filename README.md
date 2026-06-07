@@ -38,9 +38,9 @@ Three models are trained daily (XGBoost, RandomForest, LinearRegression) and eva
 | 48h | XGBoost ★ | 5.49 | 7.17 | 0.787 | Best |
 | 48h | LinearRegression | 5.71 | 7.35 | 0.776 | — |
 | 48h | RandomForest | 6.39 | 8.23 | 0.719 | — |
-| 72h | XGBoost ★ | 6.04 | 7.82 | 0.746 | Best |
-| 72h | LinearRegression | 5.95 | 7.58 | 0.762 | — |
-| 72h | RandomForest | 6.96 | 9.03 | 0.662 | — |
+| 72h | XGBoost ★ | 6.04 | 7.82 | 0.7477 | Best |
+| 72h | LinearRegression | 6.25 | 7.88 | 0.7440 | — |
+| 72h | RandomForest | 9.07 | 7.03 | 0.6607 | — |
  
 
 > These scores reflect the latest production training run. Since training happens daily with fresh data, exact values may shift slightly over time. Each horizon has its own dedicated model — no autoregressive error compounding across days.
@@ -176,7 +176,7 @@ Both workflows use `MONGODB_URI` from GitHub Secrets.
 | Workflow | Schedule | What It Does |
 |---|---|---|
 | Hourly Ingestion | Every hour at :05 | Fetches latest weather + AQI data from Open-Meteo, engineers features, runs inference, upserts predictions to MongoDB |
-| Daily Training | 2:00 AM UTC daily | Loads full feature history, trains 9 models (3 algorithms × 3 horizons), saves best per horizon to GridFS |
+| Daily Training | 1:00 AM UTC daily | Loads full feature history, trains 9 models (3 algorithms × 3 horizons), saves best per horizon to GridFS |
 
 ---
 
