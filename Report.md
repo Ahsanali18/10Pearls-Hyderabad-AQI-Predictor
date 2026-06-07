@@ -1,10 +1,10 @@
 # Hyderabad AQI Prediction System — Project Report
 
-**Project:** Multi-Horizon Air Quality Index Forecasting System
-**Location:** Hyderabad, Sindh, Pakistan (25.396°N, 68.358°E)
-**Organization:** 10Pearls — Internship Project
-**Forecast Horizons:** Day 1 (next 24h mean), Day 2 (next 48h mean), Day 3 (next 72h mean)
-**Data Period:** January 4, 2025 → May 27, 2026 (16 months · 12,352 hourly rows)
+**Project:** Multi-Horizon Air Quality Index Forecasting System\
+**Location:** Hyderabad, Sindh, Pakistan (25.396°N, 68.358°E)\
+**Organization:** 10Pearls — Internship Project\
+**Forecast Horizons:** Day 1 (next 24h mean), Day 2 (next 48h mean), Day 3 (next 72h mean)\
+**Data Period:** January 4, 2025 → May 27, 2026 (16 months · 12,352 hourly rows)\
 **Live Dashboard:** 🔗 [View Live Application](https://10pearls-hyderabad-aqi-predictor-xgct4ppjp9s5qmyqucwxzv.streamlit.app/)
 
 ## 1. Background
