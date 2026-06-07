@@ -74,7 +74,7 @@ Three models are trained daily (XGBoost, RandomForest, LinearRegression) and eva
 │    Live Pipeline         │     │     Streamlit Dashboard      │
 │  - Feature engineering   │     │  - Current AQI gauge        │
 │  - Horizon-aware filter  │     │  - 3-day forecast cards     │
-│  - XGBoost inference     │     │  - Pollutant breakdown      │
+│  - Model inference       │     │  - Pollutant breakdown      │
 │  - Write predictions     │     │  - 7-day trend chart        │
 └──────────────────────────┘     └─────────────────────────────┘
 ```
